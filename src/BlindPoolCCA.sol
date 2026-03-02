@@ -1,10 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import "encrypted-types/EncryptedTypes.sol";
-import {FHE} from "@fhevm/solidity/lib/FHE.sol";
-import {ZamaEthereumConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
-
 /// @title IContinuousClearingAuction (minimal interface for forwarding bids)
 interface ICCA {
     function submitBid(uint256 maxPrice, uint128 amount, address owner, bytes calldata hookData)
@@ -24,11 +20,11 @@ interface ICCA {
 }
 
 /// @title BlindPoolCCA
-/// @notice Privacy wrapper for Uniswap CCA using Zama fhEVM. Bids are encrypted
-///         on-chain during the auction and only revealed after the auction closes.
-///         Revealed bids are then forwarded to the real CCA contract for settlement.
-/// @dev Inherits ZamaEthereumConfig to auto-configure the Zama coprocessor on Sepolia.
-contract BlindPoolCCA is ZamaEthereumConfig {
+/// @notice Privacy wrapper for Uniswap CCA that keeps bid details offchain.
+///         Users submit blind bids with onchain ETH escrow plus an offchain
+///         commitment; a trusted offchain workflow (e.g., Chainlink CRE) later
+///         forwards cleared bids to the real CCA contract for settlement.
+contract BlindPoolCCA {
     // ═══════════════════════════════════════════════════════════════════
     //                          STATE
     // ═══════════════════════════════════════════════════════════════════
@@ -41,19 +37,15 @@ contract BlindPoolCCA is ZamaEthereumConfig {
     /// @notice Block number after which no more blind bids are accepted
     uint64 public blindBidDeadline;
 
-    /// @notice Whether bids have been marked for public decryption
-    bool public revealed;
-
     /// @notice Total number of blind bids submitted
     uint256 public nextBlindBidId;
 
     /// @notice A single sealed bid
     struct BlindBid {
         address bidder;
-        euint64 encMaxPrice; // Encrypted max price (Q96 scaled to fit uint64)
-        euint64 encAmount; // Encrypted bid amount in wei
-        uint256 ethDeposit; // Actual ETH held in escrow (covers worst-case bid)
+        uint256 ethDeposit; // ETH held in escrow (covers worst-case bid)
         bool forwarded; // Whether this bid has been forwarded to the CCA
+        bytes32 bidCommitment; // Offchain commitment to bid details (maxPrice, amount, flags, etc.)
     }
 
     /// @notice blindBidId → BlindBid
@@ -62,16 +54,11 @@ contract BlindPoolCCA is ZamaEthereumConfig {
     /// @notice blindBidId → real CCA bidId (set after forwarding)
     mapping(uint256 => uint256) public ccaBidIds;
 
-    // ── Encrypted aggregates (for privacy-preserving stats on the UI) ──
-    euint64 internal _encHighestPrice;
-    euint64 internal _encTotalDemand;
-
     // ═══════════════════════════════════════════════════════════════════
     //                          EVENTS
     // ═══════════════════════════════════════════════════════════════════
 
-    event BlindBidPlaced(uint256 indexed blindBidId, address indexed bidder);
-    event BidsRevealed(uint256 totalBids);
+    event BlindBidPlaced(uint256 indexed blindBidId, address indexed bidder, bytes32 bidCommitment);
     event BidForwarded(uint256 indexed blindBidId, uint256 indexed ccaBidId);
     event EthRefunded(uint256 indexed blindBidId, address indexed bidder, uint256 amount);
 
@@ -79,10 +66,7 @@ contract BlindPoolCCA is ZamaEthereumConfig {
     //                          ERRORS
     // ═══════════════════════════════════════════════════════════════════
 
-    error AuctionStillOpen();
     error AuctionClosed();
-    error NotRevealed();
-    error AlreadyRevealed();
     error AlreadyForwarded();
     error OnlyAdmin();
     error NoDeposit();
@@ -98,124 +82,56 @@ contract BlindPoolCCA is ZamaEthereumConfig {
         admin = msg.sender;
         cca = ICCA(_cca);
         blindBidDeadline = _blindBidDeadline;
-
-        // Initialize encrypted aggregates to zero
-        _encHighestPrice = FHE.asEuint64(0);
-        FHE.allowThis(_encHighestPrice);
-
-        _encTotalDemand = FHE.asEuint64(0);
-        FHE.allowThis(_encTotalDemand);
     }
 
     // ═══════════════════════════════════════════════════════════════════
     //                     PHASE 1: BLIND BIDDING
     // ═══════════════════════════════════════════════════════════════════
 
-    /// @notice Submit a sealed bid. Both maxPrice and amount are encrypted
-    ///         so no one (including validators) can read them until reveal.
+    /// @notice Submit a sealed bid.
     /// @dev    msg.value is the ETH escrow — it must cover the worst-case bid.
-    ///         The actual encrypted amount can be ≤ msg.value; excess is refunded
-    ///         at settlement.
-    /// @param _encMaxPrice  Encrypted max price from relayer SDK
-    /// @param _encAmount    Encrypted bid amount from relayer SDK
-    /// @param _inputProof   ZK proof of plaintext knowledge (from relayer SDK .encrypt())
-    function submitBlindBid(
-        externalEuint64 _encMaxPrice,
-        externalEuint64 _encAmount,
-        bytes calldata _inputProof
-    ) external payable {
+    ///         The actual amount used when forwarding to CCA can be ≤ msg.value;
+    ///         excess is refunded at settlement.
+    /// @param _bidCommitment Offchain commitment to bid details (hash of maxPrice, amount, flags, etc.)
+    function submitBlindBid(bytes32 _bidCommitment) external payable {
         if (block.number >= blindBidDeadline) revert AuctionClosed();
         if (msg.value == 0) revert NoDeposit();
-
-        // Verify & internalize encrypted inputs
-        euint64 encPrice = FHE.fromExternal(_encMaxPrice, _inputProof);
-        euint64 encAmt = FHE.fromExternal(_encAmount, _inputProof);
 
         // Store the blind bid
         uint256 bidId = nextBlindBidId++;
         _blindBids[bidId] = BlindBid({
             bidder: msg.sender,
-            encMaxPrice: encPrice,
-            encAmount: encAmt,
             ethDeposit: msg.value,
-            forwarded: false
+            forwarded: false,
+            bidCommitment: _bidCommitment
         });
 
-        // ── Update encrypted aggregates ──
-        // Track the highest encrypted price seen
-        ebool isHigher = FHE.lt(_encHighestPrice, encPrice);
-        _encHighestPrice = FHE.select(isHigher, encPrice, _encHighestPrice);
-        FHE.allowThis(_encHighestPrice);
-
-        // Track total encrypted demand
-        _encTotalDemand = FHE.add(_encTotalDemand, encAmt);
-        FHE.allowThis(_encTotalDemand);
-
-        // ── ACL permissions ──
-        // Contract can operate on these in future transactions
-        FHE.allowThis(encPrice);
-        FHE.allowThis(encAmt);
-        // Bidder can view their own encrypted bid via re-encryption
-        FHE.allow(encPrice, msg.sender);
-        FHE.allow(encAmt, msg.sender);
-
-        emit BlindBidPlaced(bidId, msg.sender);
+        emit BlindBidPlaced(bidId, msg.sender, _bidCommitment);
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    //                     PHASE 2: REVEAL
+    //                 FORWARD TO REAL CCA (CRE-DRIVEN)
     // ═══════════════════════════════════════════════════════════════════
 
-    /// @notice After the blind bid deadline, mark all encrypted bids as
-    ///         publicly decryptable. Anyone can call this.
-    /// @dev    Once called, the Zama KMS will allow public decryption of
-    ///         every bid's encMaxPrice and encAmount via the relayer SDK.
-    function requestReveal() external {
-        if (block.number < blindBidDeadline) revert AuctionStillOpen();
-        if (revealed) revert AlreadyRevealed();
-
-        revealed = true;
-
-        for (uint256 i = 0; i < nextBlindBidId; i++) {
-            FHE.makePubliclyDecryptable(_blindBids[i].encMaxPrice);
-            FHE.makePubliclyDecryptable(_blindBids[i].encAmount);
-        }
-
-        // Also reveal the aggregates (optional, for transparency)
-        FHE.makePubliclyDecryptable(_encHighestPrice);
-        FHE.makePubliclyDecryptable(_encTotalDemand);
-
-        emit BidsRevealed(nextBlindBidId);
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
-    //                 PHASE 3: FORWARD TO REAL CCA
-    // ═══════════════════════════════════════════════════════════════════
-
-    /// @notice Forward a single decrypted bid to the real Uniswap CCA.
-    ///         Anyone with the KMS decryption proof can call this.
+    /// @notice Forward a single cleared bid to the real Uniswap CCA.
+    /// @dev    Intended to be called by an offchain workflow (e.g., CRE) that
+    ///         has validated the bid commitment and chosen the final amount.
     /// @param _blindBidId        The blind bid index
-    /// @param _clearMaxPrice     Decrypted max price (Q96 uint64)
-    /// @param _clearAmount       Decrypted amount (wei uint64)
-    /// @param _decryptionProof   KMS proof covering both values
+    /// @param _clearMaxPrice     Max price (Q96)
+    /// @param _clearAmount       Final amount (wei)
+    /// @param _owner             Owner address for the CCA bid (usually bidder)
+    /// @param _hookData          Optional hook data for CCA
     function forwardBidToCCA(
         uint256 _blindBidId,
-        uint64 _clearMaxPrice,
-        uint64 _clearAmount,
-        bytes calldata _decryptionProof
+        uint256 _clearMaxPrice,
+        uint128 _clearAmount,
+        address _owner,
+        bytes calldata _hookData
     ) external {
-        if (!revealed) revert NotRevealed();
+        if (msg.sender != admin) revert OnlyAdmin();
 
         BlindBid storage bb = _blindBids[_blindBidId];
         if (bb.forwarded) revert AlreadyForwarded();
-
-        // ── Verify KMS proof: decrypted values match ciphertexts ──
-        bytes32[] memory handles = new bytes32[](2);
-        handles[0] = FHE.toBytes32(bb.encMaxPrice);
-        handles[1] = FHE.toBytes32(bb.encAmount);
-
-        bytes memory encodedClear = abi.encode(_clearMaxPrice, _clearAmount);
-        FHE.checkSignatures(handles, encodedClear, _decryptionProof);
 
         bb.forwarded = true;
 
@@ -225,10 +141,10 @@ contract BlindPoolCCA is ZamaEthereumConfig {
 
         // Forward to the real CCA
         uint256 ccaBidId = cca.submitBid{value: toSend}(
-            uint256(_clearMaxPrice), // maxPrice (Q96)
-            uint128(_clearAmount), // amount
-            bb.bidder, // original bidder remains the owner
-            bytes("") // no hook data
+            _clearMaxPrice, // maxPrice (Q96)
+            _clearAmount, // amount
+            _owner, // owner in CCA
+            _hookData // optional hook data
         );
 
         ccaBidIds[_blindBidId] = ccaBidId;
@@ -244,27 +160,31 @@ contract BlindPoolCCA is ZamaEthereumConfig {
         emit BidForwarded(_blindBidId, ccaBidId);
     }
 
-    /// @notice Batch-forward all revealed bids to the CCA.
+    /// @notice Batch-forward cleared bids to the CCA.
     ///         Gas-intensive — call in chunks if needed.
     /// @param _blindBidIds    Array of blind bid IDs to forward
     /// @param _clearMaxPrices Array of decrypted max prices
-    /// @param _clearAmounts   Array of decrypted amounts
-    /// @param _decryptionProofs Array of KMS proofs (one per bid)
+    /// @param _clearAmounts   Array of final amounts
+    /// @param _owners         Array of owners for CCA bids
+    /// @param _hookData       Array of hook data blobs
     function forwardBidsToCCA(
         uint256[] calldata _blindBidIds,
-        uint64[] calldata _clearMaxPrices,
-        uint64[] calldata _clearAmounts,
-        bytes[] calldata _decryptionProofs
+        uint256[] calldata _clearMaxPrices,
+        uint128[] calldata _clearAmounts,
+        address[] calldata _owners,
+        bytes[] calldata _hookData
     ) external {
         require(
-            _blindBidIds.length == _clearMaxPrices.length && _blindBidIds.length == _clearAmounts.length
-                && _blindBidIds.length == _decryptionProofs.length,
+            _blindBidIds.length == _clearMaxPrices.length
+                && _blindBidIds.length == _clearAmounts.length
+                && _blindBidIds.length == _owners.length
+                && _blindBidIds.length == _hookData.length,
             "Array length mismatch"
         );
 
         for (uint256 i = 0; i < _blindBidIds.length; i++) {
             // Use this. to allow the function to handle its own reverts
-            this.forwardBidToCCA(_blindBidIds[i], _clearMaxPrices[i], _clearAmounts[i], _decryptionProofs[i]);
+            this.forwardBidToCCA(_blindBidIds[i], _clearMaxPrices[i], _clearAmounts[i], _owners[i], _hookData[i]);
         }
     }
 
@@ -272,30 +192,14 @@ contract BlindPoolCCA is ZamaEthereumConfig {
     //                          VIEWS
     // ═══════════════════════════════════════════════════════════════════
 
-    /// @notice Get the bidder address and ETH deposit for a blind bid (public info)
-    function getBlindBidInfo(uint256 _blindBidId) external view returns (address bidder, uint256 ethDeposit, bool forwarded) {
+    /// @notice Get public info for a blind bid (no sensitive amounts)
+    function getBlindBidInfo(uint256 _blindBidId)
+        external
+        view
+        returns (address bidder, uint256 ethDeposit, bool forwarded, bytes32 bidCommitment)
+    {
         BlindBid storage bb = _blindBids[_blindBidId];
-        return (bb.bidder, bb.ethDeposit, bb.forwarded);
-    }
-
-    /// @notice Get the encrypted handle for a blind bid's maxPrice (for re-encryption)
-    function getEncMaxPrice(uint256 _blindBidId) external view returns (euint64) {
-        return _blindBids[_blindBidId].encMaxPrice;
-    }
-
-    /// @notice Get the encrypted handle for a blind bid's amount (for re-encryption)
-    function getEncAmount(uint256 _blindBidId) external view returns (euint64) {
-        return _blindBids[_blindBidId].encAmount;
-    }
-
-    /// @notice Encrypted highest price seen across all bids
-    function encHighestPrice() external view returns (euint64) {
-        return _encHighestPrice;
-    }
-
-    /// @notice Encrypted total demand across all bids
-    function encTotalDemand() external view returns (euint64) {
-        return _encTotalDemand;
+        return (bb.bidder, bb.ethDeposit, bb.forwarded, bb.bidCommitment);
     }
 
     /// @notice Allow contract to receive ETH (for CCA refunds)

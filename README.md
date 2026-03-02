@@ -1,38 +1,50 @@
 # BlindPool CCA - Sepolia Testnet
 
-Privacy-focused fork of Uniswap's Continuous Clearing Auction (CCA) using **Zama fhEVM** (Fully Homomorphic Encryption) on Sepolia testnet.
+Privacy-focused fork of Uniswap's Continuous Clearing Auction (CCA) that uses **Chainlink Confidential Compute** and **CRE Confidential HTTP** to orchestrate private, compliant auction flows offchain.
+
+## TODO
+
+**Chainlink Hackathon - Privacy Track ($6,000)**
+
+Participating in the Chainlink hackathon. This project integrates **Chainlink Confidential Compute** (early access) for private transactions and/or **CRE's Confidential HTTP** capability to build privacy-preserving workflows, where API credentials, selected request and response data, and value flows are protected, and sensitive application logic executes offchain.
+
+This track focuses on applications that require secure API connectivity and/or compliant non-public token movement, enabling decentralized workflows without exposing secrets, sensitive inputs or outputs, or internal transaction flows onchain.
+
+*Note: Confidential HTTP and Chainlink Confidential Compute (early access) will be available from Feb 16th.*
+
+### Example use cases and design patterns
+
+- **Sealed-bid auctions & private payments:** Bidders submit payments via compliant private transactions; auction logic runs offchain to determine winners; settlement and refunds occur privately.
+- **Private treasury and fund operations:** Move funds internally without exposing detailed transaction flows, while retaining the ability to withdraw to public token contracts.
+- **Private governance payouts & incentives:** Governance or scoring logic runs offchain; rewards, grants, or incentives are distributed via compliant private transactions; individual recipients and amounts are not publicly visible.
+- **Private rewards & revenue distribution:** Offchain computation determines allocations; payments executed via private transactions; supports rebates, revenue shares, bounties, and incentives.
+- **OTC and brokered settlements:** Settle negotiated trades privately between counterparties, with execution coordinated offchain.
+- **Secure Web2 API integration for decentralized workflows:** Use external APIs in CRE without exposing API keys or sensitive request & response parameters onchain.
+- **Protected request–driven automation:** Trigger offchain or onchain workflows based on API data while keeping credentials and selected request inputs confidential.
+- **Safe access to regulated or high-risk APIs:** Interact with APIs where leaked credentials or request parameters could cause financial, security, or compliance risk.
+- **Credential-secure data ingestion and processing:** Fetch and process external data offchain using CRE while preventing secrets from being exposed to the blockchain or logs.
+- **Controlled offchain data handling with auditability:** Execute API requests offchain with reliable execution guarantees and traceable usage, without writing sensitive inputs onchain.
+
+### Requirements
+
+Build, simulate, or deploy a **CRE Workflow** that's used as an orchestration layer within your project. Your workflow should:
+
+- Integrate at least one blockchain with an external API, system, data source, LLM, or AI agent
+- Demonstrate a successful simulation (via the CRE CLI) or a live deployment on the CRE network
 
 ## Overview
 
 The Continuous Clearing Auction (CCA) is a novel auction mechanism that generalizes the uniform-price auction into continuous time. It provides fair price discovery for bootstrapping initial liquidity while eliminating timing games and encouraging early participation.
 
-**BlindPool** extends CCA with **sealed-bid privacy**: bids are encrypted on-chain using Zama's fhEVM so no one (validators, MEV bots, other bidders) can read bid prices or amounts until the auction closes.
+**BlindPool** extends CCA with **sealed-bid privacy**: bid details are kept offchain inside Chainlink Confidential Compute workflows so no one (validators, MEV bots, other bidders) can read bid prices or amounts until the auction closes.
 
 ### Key Benefits
 
 - **Fair Price Discovery** - Continuous clearing auctions eliminate timing games and establish credible market prices
 - **Immediate Deep Liquidity** - Seamless transition from price discovery to active Uniswap V4 trading
 - **Permissionless** - Anyone can bootstrap liquidity or participate in price discovery
-- **Sealed Bids (FHE)** - Bid prices and amounts are encrypted on-chain via Zama fhEVM; only revealed after auction close
+- **Sealed Bids via CRE** - Bid prices and amounts are handled inside CRE workflows and never exposed publicly during the auction; only aggregated results are revealed after auction close
 - **MEV Resistant** - No front-running or bid sniping since bid data is encrypted
-
-### How BlindPool Works
-
-```
-Phase 1: BLIND BIDDING (during auction)
-  Browser encrypts bid with @zama-fhe/relayer-sdk
-  -> BlindPoolCCA stores euint64 ciphertexts on-chain
-  -> Nobody can read bid prices or amounts
-
-Phase 2: REVEAL (after blind bid deadline)
-  requestReveal() marks ciphertexts as publicly decryptable
-  -> Zama KMS allows decryption via relayer SDK
-
-Phase 3: FORWARD (before CCA ends)
-  publicDecrypt() returns cleartext + KMS proof
-  -> forwardBidToCCA() submits real bids to Uniswap CCA
-  -> Normal CCA settlement follows (exitBid, claimTokens)
-```
 
 ### What's Private vs Public
 
@@ -56,15 +68,6 @@ Phase 3: FORWARD (before CCA ends)
 | FullRangeLBPStrategyFactory | `0x89Dd5691e53Ea95d19ED2AbdEdCf4cBbE50da1ff` |
 | AdvancedLBPStrategyFactory | `0xdC3553B7Cea1ad3DAB35cBE9d40728C4198BCBb6` |
 | UERC20Factory | `0x0cde87c11b959e5eb0924c1abf5250ee3f9bd1b5` |
-
-### Zama fhEVM (Sepolia coprocessor)
-
-| Contract | Address |
-|----------|---------|
-| ACL | `0xf0Ffdc93b7E186bC2f8CB3dAA75D86d1930A433D` |
-| FHEVMExecutor (Coprocessor) | `0x92C920834Ec8941d2C77D188936E1f7A6f49c127` |
-| KMS Verifier | `0xbE0E383937d564D7FF0BC3b46c51f0bF8d5C311A` |
-| Input Verifier | `0xBBC1fFCdc7C316aAAd72E807D9b0272BE8F84DA0` |
 
 ## Prerequisites
 
@@ -93,22 +96,10 @@ cp .env.example .env
    - `DEPLOYER` - Your wallet address
    - `ETHERSCAN_API_KEY` - For contract verification (optional)
 
-4. **fhevm / encrypted-types (required for BlindPool):**
-   - Initialize the fhevm submodule and install Solidity deps:
-     ```bash
-     git submodule update --init lib/fhevm
-     cd lib/fhevm/library-solidity && npm install --ignore-scripts && cd ../../..
-     ```
-   - If you see `encrypted-types/EncryptedTypes.sol: No such file or directory`, the step above fixes it. If you see `FHEVMHostAddresses.sol` missing, that comes from the **anviltest** folder; you can build only src + script by skipping tests:
-
-5. Build the contracts:
+4. Build the contracts:
 
 ```bash
-# Full build (includes anviltest; requires FHEVMHostAddresses from Zama deploy tasks)
 forge build
-
-# Build only src + script (no anviltest) — use this if full build fails
-forge build --skip "anviltest/**"
 ```
 
 Then run the deploy script. **You must provide your wallet** or Foundry will refuse to broadcast (`Be sure to set your own --sender`):
@@ -156,15 +147,9 @@ Then set in the app’s `.env.local`: `NEXT_PUBLIC_BLIND_POOL_FACTORY_ADDRESS=0x
 make check-blindpool BLIND_POOL_ADDRESS=0x...
 ```
 
-### BlindPool: Reveal Bids
+### BlindPool: Reveal / Finalize Bids
 
-After the blind bid deadline, mark all encrypted bids as publicly decryptable:
-
-```bash
-make reveal-blindpool BLIND_POOL_ADDRESS=0x...
-```
-
-Then use the relayer SDK off-chain to decrypt and forward each bid (see Frontend Integration below).
+After the blind bid deadline, a Chainlink CRE workflow will be responsible for aggregating offchain sealed bids, computing the clearing price, and finalizing the auction onchain. The exact CLI / workflow commands will be documented once the CRE workflow is wired up to the BlindPool contracts.
 
 ---
 
@@ -254,63 +239,25 @@ Example: A floor price of `79228162514264334008320` represents a 1:1,000,000 rat
 uint256 priceQ96 = (1 << 96) / 1_000_000; // 1 ETH per 1 million tokens
 ```
 
-## Frontend Integration (Relayer SDK)
+## Frontend / CRE Integration (planned)
 
-The BlindPool frontend uses `@zama-fhe/relayer-sdk` to encrypt bids client-side:
+The next iteration will replace the fhEVM relayer flow with:
 
-```typescript
-import { createInstance } from '@zama-fhe/relayer-sdk';
+- EIP‑712 signed bid messages from the BlindPool front‑end.
+- Confidential HTTP calls into a Chainlink CRE workflow that:
+  - Verifies signatures and compliance rules.
+  - Stores sealed bids offchain.
+  - Triggers any required onchain deposits or finalization transactions.
 
-// Initialize (Sepolia testnet)
-const instance = await createInstance({
-  aclContractAddress: '0xf0Ffdc93b7E186bC2f8CB3dAA75D86d1930A433D',
-  kmsContractAddress: '0xbE0E383937d564D7FF0BC3b46c51f0bF8d5C311A',
-  inputVerifierContractAddress: '0xBBC1fFCdc7C316aAAd72E807D9b0272BE8F84DA0',
-  verifyingContractAddressDecryption: '0x5D8BD78e2ea6bbE41f26dFe9fdaEAa349e077478',
-  verifyingContractAddressInputVerification: '0x483b9dE06E4E4C7D35CCf5837A1668487406D955',
-  chainId: 11155111,
-  gatewayChainId: 10901,
-  network: 'https://1rpc.io/sepolia',
-  relayerUrl: 'https://relayer.testnet.zama.org',
-});
-
-// Encrypt a bid
-const input = instance.createEncryptedInput(blindPoolAddress, userAddress);
-input.add64(BigInt(maxPriceQ96));  // encrypted max price
-input.add64(BigInt(amountWei));    // encrypted bid amount
-const encrypted = await input.encrypt();
-
-// Submit to BlindPoolCCA via wagmi/viem
-await writeContract({
-  address: blindPoolAddress,
-  abi: BlindPoolABI,
-  functionName: 'submitBlindBid',
-  args: [encrypted.handles[0], encrypted.handles[1], encrypted.inputProof],
-  value: BigInt(amountWei),  // ETH escrow
-});
-
-// After reveal: decrypt + forward
-const results = await instance.publicDecrypt([priceHandle, amountHandle]);
-await writeContract({
-  address: blindPoolAddress,
-  abi: BlindPoolABI,
-  functionName: 'forwardBidToCCA',
-  args: [
-    bidId,
-    results.clearValues[priceHandle],
-    results.clearValues[amountHandle],
-    results.decryptionProof,
-  ],
-});
-```
+Concrete code examples and endpoints will be added once the CRE workflow and HTTP bridge are finalized.
 
 ## Resources
 
 - [CCA Whitepaper](https://docs.uniswap.org/concepts/liquidity-launchpad/whitepaper)
 - [Uniswap CCA Repository](https://github.com/Uniswap/continuous-clearing-auction)
 - [Liquidity Launcher Docs](https://docs.uniswap.org/contracts/liquidity-launchpad)
-- [Zama fhEVM Documentation](https://docs.zama.org/protocol/solidity-guides)
-- [Zama Relayer SDK](https://docs.zama.org/protocol/relayer-sdk-guides)
+- [Chainlink Confidential Compute / CRE Docs](https://docs.chain.link/)
+- [Compliant Private Transfer Demo](https://github.com/smartcontractkit/compliant-private-transfer-demo) <!-- reference to the cloned repo pattern -->
 
 ## License
 
