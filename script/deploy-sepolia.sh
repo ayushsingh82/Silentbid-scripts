@@ -2,13 +2,13 @@
 set -e
 
 # ============================================================
-#  BlindPool CCA - Deploy to Sepolia (Live fhEVM Coprocessor)
+#  SilentBid CCA - Deploy to Sepolia (Chainlink CRE)
 # ============================================================
 #
 #  Deploys:
 #    1. ERC20Mock token
 #    2. CCA auction (via Uniswap CCA Factory on Sepolia)
-#    3. BlindPoolCCA privacy wrapper (uses Zama fhEVM)
+#    3. SilentBidCCA privacy wrapper (CRE sealed bids)
 #
 #  fhEVM contracts are ALREADY live on Sepolia:
 #    ACL:           0xf0Ffdc93b7E186bC2f8CB3dAA75D86d1930A433D
@@ -43,7 +43,7 @@ NC='\033[0m'
 
 echo ""
 echo "============================================================"
-echo "  BlindPool CCA - Sepolia Deployment"
+echo "  SilentBid CCA - Sepolia Deployment"
 echo "============================================================"
 echo ""
 
@@ -198,49 +198,49 @@ echo ""
 echo -e "  ${GREEN}CCA deployed:  $AUCTION_ADDRESS${NC}"
 echo "  Token:       $TOKEN_ADDRESS"
 
-# ── 5. Deploy BlindPoolCCA ──
+# ── 5. Deploy SilentBidCCA ──
 echo ""
-echo -e "${CYAN}[5/7]${NC} Deploying BlindPoolCCA privacy wrapper..."
+echo -e "${CYAN}[5/7]${NC} Deploying SilentBidCCA privacy wrapper..."
 echo "  Pointing to CCA: $AUCTION_ADDRESS"
 echo ""
 
 export AUCTION_ADDRESS="$AUCTION_ADDRESS"
 
-BLIND_OUTPUT=$(forge script script/DeployBlindPool.s.sol:DeployBlindPool \
+SILENTBID_OUTPUT=$(forge script script/DeploySilentBid.s.sol:DeploySilentBid \
     --rpc-url "$SEPOLIA_RPC_URL" \
     --private-key "$PRIVATE_KEY" \
     --broadcast \
     --code-size-limit 50000 \
     -vv 2>&1)
 
-echo "$BLIND_OUTPUT" | grep -E "BlindPool|CCA|Block|Deadline|Admin|deployed" || true
+echo "$SILENTBID_OUTPUT" | grep -E "SilentBid|CCA|Block|Deadline|Admin|deployed" || true
 
-BLIND_POOL_ADDRESS=$(echo "$BLIND_OUTPUT" | grep "BlindPoolCCA deployed to:" | awk '{print $NF}')
+SILENTBID_ADDRESS=$(echo "$SILENTBID_OUTPUT" | grep "SilentBidCCA deployed to:" | awk '{print $NF}')
 
-if [ -z "$BLIND_POOL_ADDRESS" ]; then
-    BLIND_POOL_ADDRESS=$(cat broadcast/DeployBlindPool.s.sol/11155111/run-latest.json 2>/dev/null | \
-        python3 -c "import sys,json; txs=json.load(sys.stdin)['transactions']; print([t['contractAddress'] for t in txs if t.get('contractName')=='BlindPoolCCA'][0])" 2>/dev/null || echo "")
+if [ -z "$SILENTBID_ADDRESS" ]; then
+    SILENTBID_ADDRESS=$(cat broadcast/DeploySilentBid.s.sol/11155111/run-latest.json 2>/dev/null | \
+        python3 -c "import sys,json; txs=json.load(sys.stdin)['transactions']; print([t['contractAddress'] for t in txs if t.get('contractName')=='SilentBidCCA'][0])" 2>/dev/null || echo "")
 fi
 
-if [ -z "$BLIND_POOL_ADDRESS" ]; then
-    echo -e "  ${RED}ERROR: Could not determine BlindPool address${NC}"
+if [ -z "$SILENTBID_ADDRESS" ]; then
+    echo -e "  ${RED}ERROR: Could not determine SilentBid address${NC}"
     exit 1
 fi
 
 echo ""
-echo -e "  ${GREEN}BlindPool deployed: $BLIND_POOL_ADDRESS${NC}"
+echo -e "  ${GREEN}SilentBid deployed: $SILENTBID_ADDRESS${NC}"
 
 # ── 6. Verify on Etherscan (optional) ──
 echo ""
 echo -e "${CYAN}[6/7]${NC} Verifying contracts on Etherscan..."
 
 if [ -n "$ETHERSCAN_API_KEY" ] && [ "$ETHERSCAN_API_KEY" != "YOUR_ETHERSCAN_KEY_HERE" ]; then
-    echo "  Verifying BlindPoolCCA..."
-    forge verify-contract "$BLIND_POOL_ADDRESS" \
-        src/BlindPoolCCA.sol:BlindPoolCCA \
+    echo "  Verifying SilentBidCCA..."
+    forge verify-contract "$SILENTBID_ADDRESS" \
+        src/SilentBidCCA.sol:SilentBidCCA \
         --chain sepolia \
         --etherscan-api-key "$ETHERSCAN_API_KEY" \
-        --constructor-args $(cast abi-encode "constructor(address,uint64)" "$AUCTION_ADDRESS" "$(cast call "$BLIND_POOL_ADDRESS" "blindBidDeadline()(uint64)" --rpc-url "$SEPOLIA_RPC_URL")") \
+        --constructor-args $(cast abi-encode "constructor(address,uint64)" "$AUCTION_ADDRESS" "$(cast call "$SILENTBID_ADDRESS" "silentBidDeadline()(uint64)" --rpc-url "$SEPOLIA_RPC_URL")") \
         2>&1 | tail -3 || echo "  Verification may take a moment..."
 else
     echo -e "  ${YELLOW}Skipped (no ETHERSCAN_API_KEY)${NC}"
@@ -258,7 +258,7 @@ echo ""
 echo "  Contracts:"
 echo "    Token:          $TOKEN_ADDRESS"
 echo "    CCA Auction:    $AUCTION_ADDRESS"
-echo "    BlindPoolCCA:   $BLIND_POOL_ADDRESS"
+echo "    SilentBidCCA:   $SILENTBID_ADDRESS"
 echo ""
 echo "  fhEVM (already on Sepolia):"
 echo "    ACL:            $ACL_ADDR"
@@ -288,44 +288,33 @@ echo "  ────────────────────────
 echo "  Contract Addresses for Frontend:"
 echo "  ────────────────────────────────────────────────"
 echo ""
-echo "  BLIND_POOL_ADDRESS=$BLIND_POOL_ADDRESS"
+echo "  SILENTBID_ADDRESS=$SILENTBID_ADDRESS"
 echo "  CCA_ADDRESS=$AUCTION_ADDRESS"
 echo "  TOKEN_ADDRESS=$TOKEN_ADDRESS"
 echo ""
 echo "  ────────────────────────────────────────────────"
-echo "  How to submit an encrypted bid (frontend):"
+echo "  How to submit a sealed bid (frontend):"
 echo "  ────────────────────────────────────────────────"
 echo ""
-echo "  // 1. Encrypt bid values"
-echo "  const input = instance.createEncryptedInput("
-echo "    '$BLIND_POOL_ADDRESS',  // contract"
-echo "    userAddress              // sender"
-echo "  );"
-echo "  input.add64(maxPrice);    // encrypted max price"
-echo "  input.add64(amount);      // encrypted amount"
-echo "  const encrypted = await input.encrypt();"
+echo "  // 1. Compute commitment (EIP-712 or keccak256)"
+echo "  const commitment = computeBidCommitment(auctionId, sender, maxPrice, amount, timestamp);"
 echo ""
-echo "  // 2. Submit to BlindPoolCCA"
-echo "  await blindPool.submitBlindBid("
-echo "    encrypted.handles[0],   // externalEuint64 maxPrice"
-echo "    encrypted.handles[1],   // externalEuint64 amount"
-echo "    encrypted.inputProof,   // ZK proof"
-echo "    { value: ethDeposit }"
-echo "  );"
+echo "  // 2. Submit to SilentBidCCA"
+echo "  await silentBid.submitSilentBid(commitment, { value: ethDeposit });"
 echo ""
 echo "  ────────────────────────────────────────────────"
 echo "  Management commands:"
 echo "  ────────────────────────────────────────────────"
 echo ""
 echo "  # Check status"
-echo "  BLIND_POOL_ADDRESS=$BLIND_POOL_ADDRESS \\"
-echo "    forge script script/CheckBlindPool.s.sol \\"
+echo "  SILENTBID_ADDRESS=$SILENTBID_ADDRESS \\"
+echo "    forge script script/CheckSilentBid.s.sol \\"
 echo "    --rpc-url \$SEPOLIA_RPC_URL -vv"
 echo ""
-echo "  # Reveal bids (after deadline)"
-echo "  BLIND_POOL_ADDRESS=$BLIND_POOL_ADDRESS \\"
-echo "    forge script script/RevealBlindPool.s.sol \\"
-echo "    --rpc-url \$SEPOLIA_RPC_URL --private-key \$PRIVATE_KEY --broadcast -vv"
+echo "  # After deadline: CRE workflow calls forwardBidToCCA"
+echo "  SILENTBID_ADDRESS=$SILENTBID_ADDRESS \\"
+echo "    forge script script/RevealSilentBid.s.sol \\"
+echo "    --rpc-url \$SEPOLIA_RPC_URL -vv"
 echo ""
 echo "============================================================"
 
@@ -336,7 +325,7 @@ cat > "$DEPLOY_FILE" << EOF
 # Sepolia Deployment - $(date)
 TOKEN_ADDRESS=$TOKEN_ADDRESS
 AUCTION_ADDRESS=$AUCTION_ADDRESS
-BLIND_POOL_ADDRESS=$BLIND_POOL_ADDRESS
+SILENTBID_ADDRESS=$SILENTBID_ADDRESS
 DEPLOYER=$DEPLOYER
 CHAIN_ID=11155111
 EOF

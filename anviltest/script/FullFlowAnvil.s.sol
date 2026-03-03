@@ -9,7 +9,7 @@ import { ERC20Mock } from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 
 /// @title ExportCCAContracts
 /// @notice Exports CCA Factory + Token + Auction code+storage (large contracts >24KB).
-///         For use with Anvil snapshots. BlindPool is CRE commitment-based; deploy separately.
+///         For use with Anvil snapshots. SilentBid is CRE commitment-based; deploy separately.
 contract ExportCCAContracts is Script {
     uint256 constant TOTAL_SUPPLY = 1_000_000_000e18;
     uint256 constant FLOOR_PRICE = 79_228_162_514_264_334_008_320;

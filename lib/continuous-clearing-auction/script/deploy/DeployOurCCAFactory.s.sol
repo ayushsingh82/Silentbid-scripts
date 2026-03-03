@@ -16,7 +16,7 @@ contract DeployOurCCAFactoryScript is Script {
         vm.startBroadcast();
 
         // Different salt = different address (v2 = factory + auction both via_ir for size limit)
-        bytes32 salt = keccak256("BlindPoolCCA-our-factory-sepolia-v2");
+        bytes32 salt = keccak256("SilentBidCCA-our-factory-sepolia-v2");
         factory = IContinuousClearingAuctionFactory(
             address(new ContinuousClearingAuctionFactory{salt: salt}())
         );
