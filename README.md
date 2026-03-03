@@ -1,6 +1,6 @@
-# BlindPool CCA - Sepolia Testnet
+# SilentBid CCA - Sepolia Testnet
 
-Privacy-focused fork of Uniswap's Continuous Clearing Auction (CCA) that uses **Chainlink Confidential Compute** and **CRE Confidential HTTP** to orchestrate private, compliant auction flows offchain.
+Privacy-focused fork of Uniswap's Continuous Clearing Auction (CCA) that uses **Chainlink Confidential Compute** and **CRE Confidential HTTP** to orchestrate private, compliant auction flows offchain. (App and product name: **SilentBid**.)
 
 ## TODO
 
@@ -36,7 +36,7 @@ Build, simulate, or deploy a **CRE Workflow** that's used as an orchestration la
 
 The Continuous Clearing Auction (CCA) is a novel auction mechanism that generalizes the uniform-price auction into continuous time. It provides fair price discovery for bootstrapping initial liquidity while eliminating timing games and encouraging early participation.
 
-**BlindPool** extends CCA with **sealed-bid privacy**: bid details are kept offchain inside Chainlink Confidential Compute workflows so no one (validators, MEV bots, other bidders) can read bid prices or amounts until the auction closes.
+**SilentBid** extends CCA with **sealed-bid privacy**: bid details are kept offchain inside Chainlink Confidential Compute workflows so no one (validators, MEV bots, other bidders) can read bid prices or amounts until the auction closes.
 
 ### Key Benefits
 
@@ -118,9 +118,9 @@ Ensure the wallet has Sepolia ETH for gas (~0.005 ETH).
 
 ## Scripts
 
-### BlindPool: Deploy Privacy Wrapper
+### SilentBid: Deploy Privacy Wrapper
 
-Deploy BlindPoolCCA on top of an existing CCA auction. Set `PRIVATE_KEY` in `.env` (see Setup) or pass `--private-key`:
+Deploy BlindPoolCCA (SilentBid contract) on top of an existing CCA auction. Set `PRIVATE_KEY` in `.env` (see Setup) or pass `--private-key`:
 
 ```bash
 # Using Make (reads PRIVATE_KEY from .env)
@@ -131,25 +131,25 @@ export AUCTION_ADDRESS=0x25B5C66f17152F36eE858709852C4BDbB8d71DF5
 forge script script/DeployBlindPool.s.sol --rpc-url https://1rpc.io/sepolia --broadcast --private-key $PRIVATE_KEY
 ```
 
-### BlindPoolFactory: One-time deploy (for UI “Deploy BlindPool” button)
+### BlindPoolFactory: One-time deploy (for UI “Deploy SilentBid” button)
 
-Deploy the factory once so the **app** can deploy BlindPools from the UI (user connects wallet and clicks; no private key in terminal):
+Deploy the factory once so the **app** can deploy SilentBid wrappers from the UI (user connects wallet and clicks; no private key in terminal):
 
 ```bash
 forge script script/DeployBlindPoolFactory.s.sol --rpc-url https://1rpc.io/sepolia --broadcast --private-key $PRIVATE_KEY
 ```
 
-Then set in the app’s `.env.local`: `NEXT_PUBLIC_BLIND_POOL_FACTORY_ADDRESS=0x<FactoryAddress>`. After that, on any auction page users see “Deploy BlindPool for this auction” and can deploy with one click (MetaMask signs, they pay gas).
+Then set in the app’s `.env.local`: `NEXT_PUBLIC_BLIND_POOL_FACTORY_ADDRESS=0x<FactoryAddress>`. After that, on any auction page users see “Deploy SilentBid for this auction” and can deploy with one click (MetaMask signs, they pay gas).
 
-### BlindPool: Check Status
+### SilentBid: Check Status
 
 ```bash
 make check-blindpool BLIND_POOL_ADDRESS=0x...
 ```
 
-### BlindPool: Reveal / Finalize Bids
+### SilentBid: Reveal / Finalize Bids
 
-After the blind bid deadline, a Chainlink CRE workflow will be responsible for aggregating offchain sealed bids, computing the clearing price, and finalizing the auction onchain. The exact CLI / workflow commands will be documented once the CRE workflow is wired up to the BlindPool contracts.
+After the blind bid deadline, a Chainlink CRE workflow will be responsible for aggregating offchain sealed bids, computing the clearing price, and finalizing the auction onchain. The exact CLI / workflow commands will be documented once the CRE workflow is wired up to the SilentBid (BlindPool) contracts.
 
 ---
 
@@ -241,9 +241,9 @@ uint256 priceQ96 = (1 << 96) / 1_000_000; // 1 ETH per 1 million tokens
 
 ## Frontend / CRE Integration (planned)
 
-The next iteration will replace the fhEVM relayer flow with:
+The app and CRE workflows use:
 
-- EIP‑712 signed bid messages from the BlindPool front‑end.
+- EIP‑712 signed bid messages from the SilentBid front‑end.
 - Confidential HTTP calls into a Chainlink CRE workflow that:
   - Verifies signatures and compliance rules.
   - Stores sealed bids offchain.

@@ -32,7 +32,6 @@ contract CheckBlindPool is Script {
         console2.log("");
         console2.log("=== Bids ===");
         console2.log("Total Blind Bids:", blindPool.nextBlindBidId());
-        console2.log("Revealed:", blindPool.revealed());
         console2.log("ETH Balance (escrow):", address(blindPool).balance);
 
         // Show individual bid info (public fields only)
@@ -41,11 +40,12 @@ contract CheckBlindPool is Script {
             console2.log("");
             console2.log("=== Individual Bids ===");
             for (uint256 i = 0; i < totalBids && i < 20; i++) {
-                (address bidder, uint256 ethDeposit, bool forwarded) = blindPool.getBlindBidInfo(i);
+                (address bidder, uint256 ethDeposit, bool forwarded, bytes32 bidCommitment) = blindPool.getBlindBidInfo(i);
                 console2.log("  Bid", i, ":");
                 console2.log("    Bidder:", bidder);
                 console2.log("    ETH Deposit:", ethDeposit);
                 console2.log("    Forwarded to CCA:", forwarded);
+                console2.log("    Commitment:", uint256(bidCommitment));
                 if (forwarded) {
                     console2.log("    CCA Bid ID:", blindPool.ccaBidIds(i));
                 }
