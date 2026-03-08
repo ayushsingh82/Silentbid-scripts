@@ -1,264 +1,214 @@
-# SilentBid CCA - Sepolia Testnet
+# SilentBid Scripts — Sepolia
 
-Privacy-focused fork of Uniswap's Continuous Clearing Auction (CCA) that uses **Chainlink Confidential Compute** and **CRE Confidential HTTP** to orchestrate private, compliant auction flows offchain. (App and product name: **SilentBid**.)
+**Foundry scripts and contracts for SilentBid:** a privacy-focused layer on Uniswap's Continuous Clearing Auction (CCA). Bid prices and amounts stay offchain in **Chainlink CRE** until the auction closes; only commitments go onchain. This repo deploys CCA auctions, SilentBid (BlindPool) wrappers, and supports bid submission, status checks, and reveal/finalize via CRE.
 
-## TODO
-
-**Chainlink Hackathon - Privacy Track ($6,000)**
-
-Participating in the Chainlink hackathon. This project integrates **Chainlink Confidential Compute** (early access) for private transactions and/or **CRE's Confidential HTTP** capability to build privacy-preserving workflows, where API credentials, selected request and response data, and value flows are protected, and sensitive application logic executes offchain.
-
-This track focuses on applications that require secure API connectivity and/or compliant non-public token movement, enabling decentralized workflows without exposing secrets, sensitive inputs or outputs, or internal transaction flows onchain.
-
-*Note: Confidential HTTP and Chainlink Confidential Compute (early access) will be available from Feb 16th.*
-
-### Example use cases and design patterns
-
-- **Sealed-bid auctions & private payments:** Bidders submit payments via compliant private transactions; auction logic runs offchain to determine winners; settlement and refunds occur privately.
-- **Private treasury and fund operations:** Move funds internally without exposing detailed transaction flows, while retaining the ability to withdraw to public token contracts.
-- **Private governance payouts & incentives:** Governance or scoring logic runs offchain; rewards, grants, or incentives are distributed via compliant private transactions; individual recipients and amounts are not publicly visible.
-- **Private rewards & revenue distribution:** Offchain computation determines allocations; payments executed via private transactions; supports rebates, revenue shares, bounties, and incentives.
-- **OTC and brokered settlements:** Settle negotiated trades privately between counterparties, with execution coordinated offchain.
-- **Secure Web2 API integration for decentralized workflows:** Use external APIs in CRE without exposing API keys or sensitive request & response parameters onchain.
-- **Protected request–driven automation:** Trigger offchain or onchain workflows based on API data while keeping credentials and selected request inputs confidential.
-- **Safe access to regulated or high-risk APIs:** Interact with APIs where leaked credentials or request parameters could cause financial, security, or compliance risk.
-- **Credential-secure data ingestion and processing:** Fetch and process external data offchain using CRE while preventing secrets from being exposed to the blockchain or logs.
-- **Controlled offchain data handling with auditability:** Execute API requests offchain with reliable execution guarantees and traceable usage, without writing sensitive inputs onchain.
-
-### Requirements
-
-Build, simulate, or deploy a **CRE Workflow** that's used as an orchestration layer within your project. Your workflow should:
-
-- Integrate at least one blockchain with an external API, system, data source, LLM, or AI agent
-- Demonstrate a successful simulation (via the CRE CLI) or a live deployment on the CRE network
+---
 
 ## Overview
 
-The Continuous Clearing Auction (CCA) is a novel auction mechanism that generalizes the uniform-price auction into continuous time. It provides fair price discovery for bootstrapping initial liquidity while eliminating timing games and encouraging early participation.
+SilentBid adds **sealed-bid privacy** to CCA: participants submit bids through CRE workflows so validators, MEV bots, and other bidders cannot see prices or amounts until the auction ends. Clearing and settlement then follow standard CCA.
 
-**SilentBid** extends CCA with **sealed-bid privacy**: bid details are kept offchain inside Chainlink Confidential Compute workflows so no one (validators, MEV bots, other bidders) can read bid prices or amounts until the auction closes.
+### Benefits
 
-### Key Benefits
-
-- **Fair Price Discovery** - Continuous clearing auctions eliminate timing games and establish credible market prices
-- **Immediate Deep Liquidity** - Seamless transition from price discovery to active Uniswap V4 trading
-- **Permissionless** - Anyone can bootstrap liquidity or participate in price discovery
-- **Sealed Bids via CRE** - Bid prices and amounts are handled inside CRE workflows and never exposed publicly during the auction; only aggregated results are revealed after auction close
-- **MEV Resistant** - No front-running or bid sniping since bid data is encrypted
+- **Fair price discovery** — Continuous clearing without timing games.
+- **Deep liquidity** — Smooth transition into Uniswap V4 trading.
+- **Permissionless** — Anyone can deploy or participate.
+- **Sealed bids** — Prices and amounts handled in CRE; only aggregated results revealed after close.
+- **MEV-resistant** — No front-running or sniping on bid data.
 
 ### What's Private vs Public
 
-| Data | During Auction | After Reveal |
-|------|---------------|--------------|
-| Bid maxPrice | Encrypted | Decrypted for CCA |
-| Bid amount | Encrypted | Decrypted for CCA |
-| Bidder address | Visible | Visible |
-| ETH deposit | Visible | Visible |
-| Number of bids | Visible | Visible |
-| Clearing price | N/A | Public (CCA computes) |
+| Data            | During auction | After reveal      |
+|-----------------|----------------|-------------------|
+| Bid maxPrice    | Offchain (CRE) | Used for CCA      |
+| Bid amount      | Offchain (CRE) | Used for CCA      |
+| Bidder address  | Visible        | Visible           |
+| ETH deposit     | Visible        | Visible           |
+| Number of bids  | Visible        | Visible           |
+| Clearing price  | —              | Public (CCA)      |
 
-## Sepolia Contract Addresses
+---
+
+## Sepolia Addresses
 
 ### Uniswap CCA (pre-deployed)
 
-| Contract | Address |
-|----------|---------|
-| CCA Factory v1.1.0 | `0xcca1101C61cF5cb44C968947985300DF945C3565` |
-| Liquidity Launcher | `0x00000008412db3394C91A5CbD01635c6d140637C` |
-| FullRangeLBPStrategyFactory | `0x89Dd5691e53Ea95d19ED2AbdEdCf4cBbE50da1ff` |
-| AdvancedLBPStrategyFactory | `0xdC3553B7Cea1ad3DAB35cBE9d40728C4198BCBb6` |
-| UERC20Factory | `0x0cde87c11b959e5eb0924c1abf5250ee3f9bd1b5` |
+| Contract                    | Address                                         |
+|----------------------------|--------------------------------------------------|
+| CCA Factory v1.1.0         | `0xcca1101C61cF5cb44C968947985300DF945C3565`     |
+| Liquidity Launcher         | `0x00000008412db3394C91A5CbD01635c6d140637C`     |
+| FullRangeLBPStrategyFactory| `0x89Dd5691e53Ea95d19ED2AbdEdCf4cBbE50da1ff`    |
+| AdvancedLBPStrategyFactory | `0xdC3553B7Cea1ad3DAB35cBE9d40728C4198BCBb6`    |
+| UERC20Factory              | `0x0cde87c11b959e5eb0924c1abf5250ee3f9bd1b5`    |
+
+---
 
 ## Prerequisites
 
 - [Foundry](https://getfoundry.sh/) installed
-- Sepolia ETH for gas (get from a faucet)
-- RPC URL for Sepolia (e.g., from Alchemy, Infura)
+- Sepolia ETH for gas ([faucet](https://sepoliafaucet.com/))
+- Sepolia RPC URL (e.g. [Alchemy](https://alchemy.com/), [Infura](https://infura.io/))
+
+---
 
 ## Setup
 
-1. Clone this repository and install dependencies:
+1. **Clone and install**
 
 ```bash
-cd cca
+git clone https://github.com/ayushsingh82/Silentbid-scripts.git
+cd Silentbid-scripts
 forge install
 ```
 
-2. Copy the environment file and configure:
+2. **Configure environment**
 
 ```bash
 cp .env.example .env
 ```
 
-3. Edit `.env` with your values:
-   - `SEPOLIA_RPC_URL` - Your Sepolia RPC endpoint
-   - `PRIVATE_KEY` - Your wallet private key (without 0x prefix)
-   - `DEPLOYER` - Your wallet address
-   - `ETHERSCAN_API_KEY` - For contract verification (optional)
+Edit `.env`:
 
-4. Build the contracts:
+- `SEPOLIA_RPC_URL` — Sepolia RPC endpoint  
+- `PRIVATE_KEY` — Wallet private key (no `0x` prefix)  
+- `DEPLOYER` — Your wallet address  
+- `ETHERSCAN_API_KEY` — Optional, for verification  
+
+3. **Build**
 
 ```bash
 forge build
 ```
 
-Then run the deploy script. **You must provide your wallet** or Foundry will refuse to broadcast (`Be sure to set your own --sender`):
-
-```bash
-export AUCTION_ADDRESS=0xYourCCAAuctionAddress
-
-# Option A: private key in env (e.g. from .env: PRIVATE_KEY=0x...)
-forge script script/DeployBlindPool.s.sol --rpc-url https://1rpc.io/sepolia --broadcast --private-key $PRIVATE_KEY
-
-# Option B: pass key on the command line (replace with your Sepolia wallet key)
-# forge script script/DeployBlindPool.s.sol --rpc-url https://1rpc.io/sepolia --broadcast --private-key 0xYourPrivateKey
-```
-
-Ensure the wallet has Sepolia ETH for gas (~0.005 ETH).
-
-## Scripts
-
-### SilentBid: Deploy Privacy Wrapper
-
-Deploy BlindPoolCCA (SilentBid contract) on top of an existing CCA auction. Set `PRIVATE_KEY` in `.env` (see Setup) or pass `--private-key`:
-
-```bash
-# Using Make (reads PRIVATE_KEY from .env)
-make deploy-blindpool AUCTION_ADDRESS=0x25B5C66f17152F36eE858709852C4BDbB8d71DF5
-
-# Or: forge script with env
-export AUCTION_ADDRESS=0x25B5C66f17152F36eE858709852C4BDbB8d71DF5
-forge script script/DeployBlindPool.s.sol --rpc-url https://1rpc.io/sepolia --broadcast --private-key $PRIVATE_KEY
-```
-
-### BlindPoolFactory: One-time deploy (for UI “Deploy SilentBid” button)
-
-Deploy the factory once so the **app** can deploy SilentBid wrappers from the UI (user connects wallet and clicks; no private key in terminal):
-
-```bash
-forge script script/DeployBlindPoolFactory.s.sol --rpc-url https://1rpc.io/sepolia --broadcast --private-key $PRIVATE_KEY
-```
-
-Then set in the app’s `.env.local`: `NEXT_PUBLIC_BLIND_POOL_FACTORY_ADDRESS=0x<FactoryAddress>`. After that, on any auction page users see “Deploy SilentBid for this auction” and can deploy with one click (MetaMask signs, they pay gas).
-
-### SilentBid: Check Status
-
-```bash
-make check-blindpool BLIND_POOL_ADDRESS=0x...
-```
-
-### SilentBid: Reveal / Finalize Bids
-
-After the blind bid deadline, a Chainlink CRE workflow will be responsible for aggregating offchain sealed bids, computing the clearing price, and finalizing the auction onchain. The exact CLI / workflow commands will be documented once the CRE workflow is wired up to the SilentBid (BlindPool) contracts.
+Use a wallet with Sepolia ETH (~0.005 ETH for deploys).
 
 ---
 
-### Deploy a New CCA Auction
+## Scripts
 
-Deploy a mock token and create a new CCA auction:
+### SilentBid wrapper
+
+**Deploy SilentBid on an existing CCA auction**
+
+```bash
+# With Make (uses PRIVATE_KEY from .env)
+make deploy-silentbid AUCTION_ADDRESS=0xYourCCAAuctionAddress
+
+# Or with forge
+export AUCTION_ADDRESS=0xYourCCAAuctionAddress
+forge script script/DeploySilentBid.s.sol --rpc-url https://1rpc.io/sepolia --broadcast --private-key $PRIVATE_KEY
+```
+
+**Deploy SilentBidFactory (for UI “Deploy SilentBid” button)**
+
+Deploy once; then the app can create SilentBid wrappers from the UI (user signs with wallet, pays gas).
+
+```bash
+forge script script/DeploySilentBidFactory.s.sol --rpc-url https://1rpc.io/sepolia --broadcast --private-key $PRIVATE_KEY
+```
+
+Set in the app’s `.env.local`: `NEXT_PUBLIC_BLIND_POOL_FACTORY_ADDRESS=0x<FactoryAddress>`.
+
+**Check SilentBid status**
+
+```bash
+make check SILENTBID_ADDRESS=0x...
+```
+
+**Reveal / finalize bids**
+
+After the blind-bid deadline, CRE aggregates sealed bids and finalizes onchain. Use the reveal script when the workflow is wired:
+
+```bash
+make reveal SILENTBID_ADDRESS=0x...
+```
+
+---
+
+### CCA auction (base layer)
+
+**Deploy a new CCA auction** (mock token + auction)
 
 ```bash
 source .env
-forge script script/DeployCCA.s.sol:DeployCCA \
-  --rpc-url $SEPOLIA_RPC_URL \
-  --broadcast \
-  -vvvv
+forge script script/DeployCCA.s.sol:DeployCCA --rpc-url $SEPOLIA_RPC_URL --broadcast -vvvv
 ```
 
-### Submit a Bid
-
-Submit a bid on an existing auction:
+**Submit a bid**
 
 ```bash
-source .env
-AUCTION_ADDRESS=0x... forge script script/SubmitBid.s.sol:SubmitBid \
-  --rpc-url $SEPOLIA_RPC_URL \
-  --broadcast \
-  -vvvv
+AUCTION_ADDRESS=0x... forge script script/SubmitBid.s.sol:SubmitBid --rpc-url $SEPOLIA_RPC_URL --broadcast -vvvv
 ```
 
-### Check Auction Status
-
-View the current status of an auction:
+**Check auction status**
 
 ```bash
-source .env
-AUCTION_ADDRESS=0x... forge script script/CheckAuction.s.sol:CheckAuction \
-  --rpc-url $SEPOLIA_RPC_URL \
-  -vvvv
+AUCTION_ADDRESS=0x... forge script script/CheckAuction.s.sol:CheckAuction --rpc-url $SEPOLIA_RPC_URL -vvvv
 ```
 
-### Exit Bid and Claim Tokens
-
-Exit a bid and claim purchased tokens after the auction ends:
+**Exit bid and claim tokens** (after auction ends)
 
 ```bash
-source .env
-AUCTION_ADDRESS=0x... BID_ID=0 forge script script/ExitAndClaim.s.sol:ExitAndClaim \
-  --rpc-url $SEPOLIA_RPC_URL \
-  --broadcast \
-  -vvvv
+AUCTION_ADDRESS=0x... BID_ID=0 forge script script/ExitAndClaim.s.sol:ExitAndClaim --rpc-url $SEPOLIA_RPC_URL --broadcast -vvvv
 ```
 
-### Sweep Unsold Tokens and Raised Funds
-
-Sweep remaining tokens and raised ETH after the auction ends:
+**Sweep unsold tokens and raised funds**
 
 ```bash
-source .env
-AUCTION_ADDRESS=0x... forge script script/SweepAuction.s.sol:SweepAuction \
-  --rpc-url $SEPOLIA_RPC_URL \
-  --broadcast \
-  -vvvv
+AUCTION_ADDRESS=0x... forge script script/SweepAuction.s.sol:SweepAuction --rpc-url $SEPOLIA_RPC_URL --broadcast -vvvv
 ```
 
-## Auction Parameters Explained
+---
 
-| Parameter | Description |
-|-----------|-------------|
-| `currency` | Token to raise funds in. Use `address(0)` for ETH |
-| `tokensRecipient` | Address to receive leftover tokens |
-| `fundsRecipient` | Address to receive all raised funds |
-| `startBlock` | Block when the auction starts |
-| `endBlock` | Block when the auction ends |
-| `claimBlock` | Block when tokens can be claimed |
-| `tickSpacing` | Minimum price increment for bids |
-| `validationHook` | Optional contract for bid validation |
-| `floorPrice` | Starting floor price (Q96 format) |
-| `requiredCurrencyRaised` | Minimum amount to raise for graduation |
-| `auctionStepsData` | Token issuance schedule |
+## Auction parameters
 
-## Price Format
+| Parameter                   | Description                              |
+|----------------------------|------------------------------------------|
+| `currency`                 | Token for payment; `address(0)` = ETH   |
+| `tokensRecipient`          | Receives leftover tokens                |
+| `fundsRecipient`           | Receives raised funds                   |
+| `startBlock` / `endBlock`  | Auction window                          |
+| `claimBlock`               | When tokens can be claimed              |
+| `tickSpacing`              | Min price increment                     |
+| `floorPrice`               | Starting price (Q96)                     |
+| `requiredCurrencyRaised`   | Min raise for graduation                |
+| `auctionStepsData`         | Token issuance schedule                 |
 
-Prices in CCA are represented as Q96 fixed-point numbers (the ratio of currency to token, shifted left by 96 bits).
+### Price format (Q96)
 
-Example: A floor price of `79228162514264334008320` represents a 1:1,000,000 ratio (1 ETH = 1,000,000 tokens).
+Prices are Q96 fixed-point: ratio of currency to token, shifted left 96 bits.
+
+Example: `79228162514264334008320` ≈ 1 ETH per 1,000,000 tokens.
 
 ```solidity
-// To convert a ratio to Q96 format:
-uint256 priceQ96 = (1 << 96) / 1_000_000; // 1 ETH per 1 million tokens
+uint256 priceQ96 = (1 << 96) / 1_000_000; // 1 ETH per 1M tokens
 ```
 
-## Frontend / CRE Integration (planned)
+---
 
-The app and CRE workflows use:
+## CRE / frontend integration
 
-- EIP‑712 signed bid messages from the SilentBid front‑end.
-- Confidential HTTP calls into a Chainlink CRE workflow that:
-  - Verifies signatures and compliance rules.
-  - Stores sealed bids offchain.
-  - Triggers any required onchain deposits or finalization transactions.
+- **Frontend:** EIP-712 signed bid messages.
+- **CRE:** Confidential HTTP endpoint verifies signatures, applies compliance, stores sealed bids offchain, and returns data for `submitBlindBid` / finalize.
 
-Concrete code examples and endpoints will be added once the CRE workflow and HTTP bridge are finalized.
+Details and endpoints will be documented when the CRE workflow and HTTP bridge are finalized.
+
+---
+
+## Hackathon note (Privacy track)
+
+This project uses **Chainlink Confidential Compute** and **CRE Confidential HTTP** for sealed-bid flows. Bid data and value flows are protected offchain; only commitments and settlement results are onchain. See the main [SilentBid app repo](https://github.com/ayushsingh82/BlindPool) for the UI and CRE workflow code.
+
+---
 
 ## Resources
 
-- [CCA Whitepaper](https://docs.uniswap.org/concepts/liquidity-launchpad/whitepaper)
-- [Uniswap CCA Repository](https://github.com/Uniswap/continuous-clearing-auction)
-- [Liquidity Launcher Docs](https://docs.uniswap.org/contracts/liquidity-launchpad)
-- [Chainlink Confidential Compute / CRE Docs](https://docs.chain.link/)
-- [Compliant Private Transfer Demo](https://github.com/smartcontractkit/compliant-private-transfer-demo) <!-- reference to the cloned repo pattern -->
+- [Uniswap CCA docs](https://docs.uniswap.org/contracts/liquidity-launchpad)
+- [CCA whitepaper](https://docs.uniswap.org/concepts/liquidity-launchpad/whitepaper)
+- [Uniswap CCA repo](https://github.com/Uniswap/continuous-clearing-auction)
+- [Chainlink CRE](https://docs.chain.link/cre)
+- [Compliant private transfer demo](https://github.com/smartcontractkit/compliant-private-transfer-demo)
 
-## License
+---
 
-MIT
+**License:** MIT

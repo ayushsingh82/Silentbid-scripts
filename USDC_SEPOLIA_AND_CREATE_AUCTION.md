@@ -16,7 +16,7 @@ For teammates: CCA repo changes for “our” factory and USDC on Sepolia, and t
 ### 1. Deploy “our” CCA factory (Sepolia)
 
 - **Script:** `lib/continuous-clearing-auction/script/deploy/DeployOurCCAFactory.s.sol`
-- **Salt:** `keccak256("BlindPoolCCA-our-factory-sepolia-v2")` (v2 = factory + auction both with `via_ir`).
+- **Salt:** `keccak256("SilentBidCCA-our-factory-sepolia-v2")` (v2 = factory + auction both with `via_ir`).
 - **Deployed address:** `0x9D472Aaf29c062d602Edd13Ebb5C0F52B3085107` (Sepolia).
 
 Run from the CCA lib:
